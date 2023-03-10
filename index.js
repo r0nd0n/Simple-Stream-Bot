@@ -4,9 +4,9 @@ config();
 const Discord = require('discord.js');
 const client = new Discord.Client({
     intents: [
-        Discord.Intents.FLAGS.GUILD_VOICE_STATES,
-        Discord.Intents.FLAGS.GUILDS,
-        Discord.Intents.FLAGS.GUILD_MESSAGES
+        Discord.IntentsBitField.Flags.GuildVoiceStates,
+        Discord.IntentsBitField.Flags.Guilds,
+        Discord.IntentsBitField.Flags.GuildMessages
     ]
 });
 
@@ -27,13 +27,24 @@ const player = createAudioPlayer({
 	},
 });
 
+const networkStateChangeHandler = (oldNetworkState, newNetworkState) => {
+	const newUdp = Reflect.get(newNetworkState, 'udp');
+	clearInterval(newUdp?.keepAliveInterval);
+  }
+
 player.on('stateChange', (oldState, newState) => {
-	if (oldState.status === AudioPlayerStatus.Idle && newState.status === AudioPlayerStatus.Playing) {
+	Reflect.get(oldState, 'networking')?.off('stateChange', networkStateChangeHandler);
+  	Reflect.get(newState, 'networking')?.on('stateChange', networkStateChangeHandler);
+	  console.log('Connection state change from:' + oldState.status + ' to ' + newState.status)
+	if ((oldState.status === AudioPlayerStatus.Idle || oldState.status === AudioPlayerStatus.Connecting) && newState.status === AudioPlayerStatus.Playing) {
 		console.log('Playing audio output on audio player');
-	} else if (newState.status === AudioPlayerStatus.Idle) {
+	} else if (oldState.status === VoiceConnectionStatus.Ready && newState.status === VoiceConnectionStatus.Connecting) {
+		connection.configureNetworking();
+	} 
+	else if (newState.status === AudioPlayerStatus.Idle) {
 		console.log('Playback has stopped. Attempting to restart.');
 		attachRecorder();
-	}
+	}	
 });
 
 client.on('ready', () => {
@@ -53,7 +64,8 @@ client.on('ready', () => {
             await entersState(connection, VoiceConnectionStatus.Ready, 2_000);
             return connection;
         } catch (error) {
-            connection.destroy();
+            console.log(error.message ? "An error occured - " + error.message : "An error occurred.");
+			connection.destroy();
             throw error;
         }
     }, 3_000);
